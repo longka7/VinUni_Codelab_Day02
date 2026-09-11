@@ -1,126 +1,158 @@
-# 01 — Problem Scan: Xanh SM Battery Support
+# Lab 02 — Problem Scan & Quick Assessment
 
-> **Scope:** Xanh SM (GSM) — hỗ trợ tài xế EV khi pin yếu giữa hành trình.
+## Phase 1 — SCAN
 
-## 1. Bối cảnh
+Bảng dưới đây dùng bốn lenses của lab để quét các bottleneck vận hành có tần suất cao, dữ liệu đầu vào có thể thu thập và kết quả đủ rõ để đo lường. Các ước lượng thời gian là giả định scoping, cần được xác nhận bằng dữ liệu vận hành trước pilot.
 
-Tài xế EV của Xanh SM có thể gặp tình huống pin yếu giữa hành trình và cần dispatcher hỗ trợ real-time. Nếu hệ thống chỉ dẫn nhầm đến trạm xa, trạm không phù hợp hoặc đường đi không an toàn, xe có thể cạn pin giữa đường, làm tăng downtime, ảnh hưởng an toàn giao thông và giảm trải nghiệm khách hàng.
+| # | Subsidiary | Actor | Tên bài toán | Pain point | Bottleneck | Lens | AI opportunity |
+|---:|---|---|---|---|---|---|---|
+| 1 | **VinFast** | NOC operator, charging operation engineer | Phát hiện sự cố trạm sạc EV | Cảnh báo từ charger, backend và payment system rời rạc; đội trực khó nhận ra incident thật giữa nhiều alert trùng. | Gom nhóm sự kiện, xác định phạm vi ảnh hưởng và ưu tiên severity còn thủ công. | Repetitive; Stakeholder Pain | Rule phát hiện threshold/known error; AI gom alert và chuẩn hóa incident để nhân sự xác nhận. |
+| 2 | **VinFast** | Charging operation engineer | Phân tích nguyên nhân gốc sự cố trạm sạc | Kỹ sư phải đọc log, mã lỗi, lịch sử bảo trì và nhiều ticket cũ trước khi có giả thuyết RCA. | Dữ liệu phân tán, thiếu context chuẩn và phụ thuộc kinh nghiệm; khoảng 20–40 phút/incident. | Time-consuming; AI-upgrade | LLM tóm tắt timeline; RAG tìm manual, runbook và incident tương tự kèm dẫn nguồn; kỹ sư duyệt RCA. |
+| 3 | **VinFast** | Field technician | Trợ lý kỹ thuật bảo trì trạm sạc | Kỹ thuật viên hiện trường khó tìm đúng tài liệu theo model, firmware và mã lỗi trong thời gian ngắn. | Tìm kiếm tài liệu và xác định checklist phù hợp; chọn sai phiên bản có thể tạo rủi ro an toàn. | Stakeholder Pain; AI-upgrade | RAG cung cấp checklist và trích dẫn đúng phiên bản; kỹ thuật viên xác nhận trước mọi thao tác điện, reset hoặc thay linh kiện. |
+| 4 | **VinFast** | Chủ xe/tài xế, CSKH | Tìm trạm sạc phù hợp | Người dùng phải tự so sánh mức pin, đầu sạc, trạng thái trạm, giờ hoạt động và độ lệch tuyến. | Dữ liệu thay đổi nhanh và nhiều điều kiện bắt buộc; mất khoảng 8–15 phút/lượt tìm kiếm. | Time-consuming; AI-upgrade | Rule/API lọc điều kiện an toàn và dữ liệu thời gian thực; LLM hiểu nhu cầu; RAG giải thích chính sách có nguồn. |
+| 5 | **Xanh SM** | Điều phối viên đội xe | Điều phối xe theo cung–cầu và trạng thái pin | Điều phối viên phải cân bằng vị trí, nhu cầu, mức pin, ca làm và điểm sạc; dễ tăng quãng đường rỗng. | So sánh nhiều ràng buộc liên tục trong giờ cao điểm. | Repetitive; Time-consuming | Dự báo nhu cầu kết hợp tối ưu hóa/rule để xếp hạng phương án; điều phối viên duyệt ngoại lệ. |
+| 6 | **Xanh SM** | Tài xế, tổng đài viên, điều phối cứu hộ | Phân tích sự cố xe điện và điều phối cứu hộ | Báo cáo qua gọi/chat thường thiếu cấu trúc; tổng đài phải hỏi lại và mở nhiều hệ thống. | Phân loại severity, đối chiếu telemetry/SOP và chọn đội cứu hộ phù hợp; khoảng 10–20 phút triage. | Stakeholder Pain; Time-consuming | LLM trích xuất triệu chứng; rule bảo vệ tình huống khẩn cấp; RAG tìm SOP; dispatcher phê duyệt cứu hộ. |
+| 7 | **Vinhomes** | Nhân viên CSKH, ban quản lý tòa nhà | Phân loại phản ánh cư dân | Phản ánh tự do dễ bị gắn sai nhóm và chuyển vòng giữa an ninh, kỹ thuật, vệ sinh. | Hiểu ý định, mức khẩn cấp, vị trí và định tuyến đúng SLA. | Repetitive; AI-upgrade | LLM phân loại nội dung; rule ánh xạ đội xử lý/SLA; case nhạy cảm hoặc confidence thấp chuyển nhân viên. |
 
-## 2. SCAN — Bảng quét cơ hội
+**Coverage của 4 lenses:** Repetitive (#1, #5, #7), Time-consuming (#2, #4, #5, #6), AI-upgrade (#2, #3, #4, #7), Stakeholder Pain (#1, #3, #6).
 
-| # | Công ty | Lens | Bài toán / bottleneck |
-|---|---|---|---|
-| 1 | Xanh SM | Tốn thời gian | Dispatcher xử lý thủ công báo cáo pin yếu, tra GPS, tìm trạm sạc và soạn hướng dẫn cho tài xế. |
-| 2 | Xanh SM | Lặp lại | Phân loại lý do khách hủy chuyến từ cuộc gọi và ghi chú của tài xế để phát hiện nhóm nguyên nhân chính. |
-| 3 | VinFast | Lặp lại | Đối chiếu dữ liệu phiên sạc, trụ sạc và hóa đơn đối tác theo chu kỳ. |
-| 4 | Vinhomes | AI-upgrade | Phân loại phản ánh cư dân và chuyển đúng ban quản lý/tòa nhà để giảm thời gian xử lý. |
-| 5 | Vinmec | Tốn thời gian | Soạn bản nháp tóm tắt xuất viện từ hồ sơ bệnh án để bác sĩ review. |
+## Phase 2 — QUICK-ASSESS
 
-## 3. Quick Problem Cards
+Ba bài toán được ưu tiên vì liên quan trực tiếp đến EV operations, có dữ liệu vận hành, metric đo được và có thể kiểm thử boundary bằng prototype.
 
-### Card 1 — Xanh SM: xử lý sự cố pin yếu
+## Quick Problem Card 1 — VinFast: AI Incident Intelligence cho trạm sạc EV
 
-- **Bài toán:** Tài xế báo pin yếu hoặc sắp hết pin giữa hành trình nhưng dispatcher phải tra cứu và hướng dẫn thủ công.
-- **Actor:** Tài xế EV, dispatcher, đội cứu hộ/mobile charger.
-- **Workflow:** Tài xế báo sự cố -> dispatcher lấy vị trí và mức pin -> tra trạm phù hợp -> soạn hướng dẫn -> dispatcher duyệt/gửi hoặc điều cứu hộ.
-- **Bottleneck:** Tra cứu trạm và soạn hướng dẫn, khoảng 10 phút trong tổng 15 phút/lượt theo giả định cần được đo lại bằng log thực tế.
-- **AI hỗ trợ:** Hiểu mô tả tự nhiên, tạo bản nháp hướng dẫn; rule engine kiểm tra ngưỡng pin và khoảng cách.
-- **Metric:** Giảm thời gian xử lý từ baseline cần đo (giả định 15 phút) xuống dưới 3 phút; 100% output tuân thủ boundary trong test suite.
-- **Architecture:** Hybrid: Rule-based guardrail + LLM Feature + Human-in-the-loop.
+### Bài toán
 
-### Card 2 — Vinhomes: phân loại phản ánh cư dân
+Giúp đội Charge Operations phát hiện, hợp nhất và triage sớm sự cố trạm sạc từ cảnh báo, log và lịch sử vận hành để giảm downtime.
 
-- **Bài toán:** Phản ánh tự do của cư dân phải được phân loại và chuyển đúng bộ phận.
-- **Actor:** Cư dân, nhân viên CSKH, ban quản lý.
-- **Workflow:** Cư dân gửi phản ánh -> CSKH đọc và phân loại -> chuyển bộ phận -> theo dõi SLA -> phản hồi.
-- **Bottleneck:** Đọc, gắn nhãn và chuyển ticket thủ công.
-- **AI hỗ trợ:** Phân loại chủ đề, mức độ khẩn cấp và tạo bản nháp phản hồi.
-- **Metric:** 90% ticket được phân loại dưới 30 giây; tỷ lệ chuyển sai dưới 5%; CSKH duyệt mọi phản hồi.
-- **Architecture:** Rule-based routing + LLM classification/drafting.
+### Subsidiary và Actor
 
-### Card 3 — VinFast: đối chiếu hóa đơn sạc
+- **Subsidiary:** VinFast
+- **Actor:** NOC operator, charging operation engineer, field technician; khách hàng là stakeholder chịu ảnh hưởng.
 
-- **Bài toán:** Nhân viên phải so khớp phiên sạc, mã trụ và hóa đơn từ nhiều nguồn.
-- **Actor:** Nhân viên tài chính/vận hành trạm.
-- **Workflow:** Nhận file -> chuẩn hóa dữ liệu -> so mã phiên sạc -> tìm lệch -> lập danh sách cần xử lý.
-- **Bottleneck:** Chuẩn hóa định dạng và xác minh các dòng lệch.
-- **AI hỗ trợ:** Trích xuất trường dữ liệu và giải thích nhóm sai lệch; rule engine quyết định match/non-match.
-- **Metric:** 95% dòng được xử lý dưới 1 phút; false match dưới 1%; mọi mismatch được người phụ trách duyệt.
-- **Architecture:** Rule-based matching + LLM extraction/explanation.
+### Current workflow
 
-## 4. Hội tụ nhóm và chọn candidate problem
+Nhận cảnh báo từ charger/backend/payment system<br>
+↓<br>
+Đối chiếu log, error code và trạng thái session<br>
+↓<br>
+Tìm manual, runbook, lịch sử bảo trì và incident tương tự<br>
+↓<br>
+Đánh giá severity, tạo ticket và giao kỹ thuật xử lý<br>
+↓<br>
+Kỹ sư xác nhận RCA, action và kết quả
 
-Theo đúng quy trình scoping, nhóm **chưa viết Problem Statement ở bước scan**. Nhóm trước hết chọn một candidate problem để tiếp tục kiểm chứng.
+### Bottleneck
 
-| Candidate | Giá trị tiềm năng | Mức độ rủi ro | Khả năng kiểm chứng nhanh | Điểm tổng (1-5) |
-|---|---:|---:|---:|---:|
-| Xanh SM — hỗ trợ pin yếu giữa hành trình | 5 | 4 | 4 | **13/15** |
-| Vinhomes — phân loại phản ánh cư dân | 4 | 3 | 4 | 11/15 |
-| VinFast — đối chiếu hóa đơn sạc | 4 | 2 | 3 | 9/15 |
+- **Bước chậm nhất:** Đối chiếu dữ liệu đa nguồn và tìm incident tương tự, khoảng **20–40 phút**.
+- **Lỗi thường gặp:** Alert trùng, thiếu timeline, sai severity, dùng nhầm runbook hoặc thiếu bằng chứng trong ticket.
+- **Tổng thời gian ước lượng:** **45–120 phút/incident** để có chẩn đoán và phương án ban đầu, chưa gồm di chuyển/sửa chữa.
 
-**Candidate được chọn để đào sâu:** Xanh SM — hỗ trợ dispatcher xử lý tình huống pin EV yếu giữa hành trình. Lý do là pain có tính thời gian thực, impact an toàn rõ và có thể kiểm tra bằng test boundary; nhóm không chọn vì giải pháp AI “ngầu” hơn.
+### AI opportunity và architecture
 
-## 5. Kiểm chứng và research trước khi chốt Problem Statement
+- **Rule:** Threshold, known error, deduplication và guardrail an toàn.
+- **LLM:** Chuẩn hóa log/ticket thành summary và timeline.
+- **RAG:** Truy xuất manual/runbook/incident tương tự đúng phiên bản, có citation.
+- **HITL:** NOC xác nhận severity; engineer duyệt RCA/action. AI không tự reset, đổi config, dispatch hoặc đóng incident nghiêm trọng.
+- **Quick Architecture:** **LLM + RAG**, kết hợp Rule Engine.
 
-### Bằng chứng hiện có
+### Success metrics
 
-- Desk research từ worksheet/lab guideline: quy trình gồm nhận report, tra GPS, tra trạm, đánh giá phương án và soạn tin.
-- Prototype boundary test xác nhận được hai rủi ro kỹ thuật đại diện: pin dưới 5% nhưng trạm cách 8 km, và yêu cầu bỏ `[DRAFT_ONLY]`.
-- Chưa có log vận hành Xanh SM, phỏng vấn dispatcher hoặc khảo sát tài xế trong workspace này. Vì vậy các số 15 phút/lượt và target business vẫn là giả định cần xác thực.
+- Median time-to-triage: **30 phút → dưới 10 phút**.
+- Downtime nhóm lỗi đã có runbook: giảm **20–30%**.
+- Gợi ý incident severity cao: **precision ≥ 90%, recall ≥ 95%**.
+- Action có rủi ro được human approval: **100%**.
 
-### Kế hoạch validate tối thiểu
+---
 
-| Hoạt động | Đối tượng/dữ liệu | Câu hỏi cần kiểm chứng | Tiêu chí đủ tin cậy |
-|---|---|---|---|
-| Phỏng vấn bán cấu trúc | 2 dispatcher, 3 tài xế | Các bước nào thật sự tốn thời gian? Mức pin nào được coi là critical? | Ít nhất 3/5 người xác nhận cùng bottleneck |
-| Khảo sát nhanh | Tài xế/dispatcher pilot | Tần suất sự cố, thời gian xử lý, mức hài lòng | Có timestamp hoặc sample size và định nghĩa rõ |
-| Log review | Ticket điều vận 2–4 tuần | Baseline thời gian, ca hết pin, downtime | Có đủ mẫu, ẩn PII và thống nhất cách tính |
-| So sánh giải pháp hiện có | Bản đồ/trạm, quy trình cứu hộ, công cụ dispatcher | Cái gì đã có? Khoảng trống nằm ở đâu? | Không trùng chức năng và có owner xác nhận |
+## Quick Problem Card 2 — Xanh SM: AI hỗ trợ sự cố xe điện và điều phối cứu hộ
 
-**Trạng thái:** Candidate đủ cơ sở để làm prototype và deep-dive, nhưng chưa đủ bằng chứng để khẳng định baseline vận hành hoặc triển khai production.
+### Bài toán
 
-## 6. Problem Statement
+Giúp tổng đài xác định nhanh mức độ sự cố và đề xuất phương án cứu hộ dựa trên mô tả tài xế, vị trí, telemetry và SOP.
 
-Problem Statement dưới đây được viết **sau bước candidate selection, workflow mapping và xác định kế hoạch validate**. Đây là phiên bản làm việc, sẽ cập nhật khi có interview/log thực tế.
+### Subsidiary và Actor
 
-> **Tài xế Xanh SM khi pin xuống dưới ngưỡng nguy hiểm khoảng 5% hiện không có công cụ hỗ trợ real-time để tìm trạm sạc an toàn gần nhất hoặc gọi cứu hộ phù hợp, dẫn đến rủi ro xe hết pin giữa đường, tăng thời gian downtime và làm giảm trải nghiệm khách hàng.**
+- **Subsidiary:** Xanh SM (GSM)
+- **Actor:** Tài xế, tổng đài viên, điều phối viên cứu hộ và đội kỹ thuật.
 
-## 7. Problem Statement theo 5W1H
+### Current workflow
 
-| Thành phần | Nội dung |
-|---|---|
-| **Who** | Tài xế EV Xanh SM và dispatcher tại trung tâm điều vận. |
-| **What** | Xử lý báo cáo pin yếu, xác định phương án an toàn và soạn hướng dẫn cho tài xế. |
-| **When/Where** | Trong chuyến đi, đặc biệt khi pin dưới 5%, tại vị trí bất kỳ trên mạng lưới vận hành. |
-| **Why** | Dispatcher cần quyết định nhanh nhưng dữ liệu vị trí, pin và trạm thường phải tra cứu qua nhiều bước. |
-| **How** | Hiện xử lý qua cuộc gọi/app, bản đồ, dashboard trạm sạc và tin nhắn thủ công. |
-| **Impact** | Có thể dẫn đến xe hết pin, mất chuyến, tăng downtime và rủi ro an toàn nếu chỉ dẫn sai. |
+Tài xế gọi/chat báo triệu chứng và vị trí<br>
+↓<br>
+Tổng đài hỏi lại và mở telemetry<br>
+↓<br>
+Tra SOP, phân loại severity<br>
+↓<br>
+Chọn đội cứu hộ và xe thay thế nếu cần<br>
+↓<br>
+Theo dõi đến khi người và xe an toàn
 
-## 8. Metrics: baseline và target
+### Bottleneck
 
-> Các baseline dưới đây là **giả định dùng cho prototype**, không phải số liệu vận hành đã được xác nhận. Trước pilot cần truy xuất log điều vận trong 2–4 tuần để thay bằng baseline thực tế.
+- **Bước chậm nhất:** Thu thập đủ thông tin và đối chiếu telemetry/SOP, khoảng **10–20 phút**.
+- **Lỗi thường gặp:** Bỏ sót tín hiệu an toàn, hiểu sai mô tả, phân loại sai severity hoặc chọn sai năng lực cứu hộ.
+- **Tổng thời gian ước lượng:** **20–45 phút/case** để xác nhận phương án, chưa gồm thời gian đội cứu hộ di chuyển.
 
-### Business metrics
+### AI opportunity và architecture
 
-| Metric | Baseline tạm thời | Target pilot | Cách đo |
-|---|---:|---:|---|
-| Thời gian xử lý sự cố pin yếu | 15 phút/lượt (giả định) | < 3 phút/lượt, giảm ít nhất 80% | Timestamp từ lúc nhận báo cáo đến lúc dispatcher có phương án đã duyệt |
-| Ca xe hết pin giữa đường | Chưa có baseline tin cậy | Giảm ít nhất 30% sau 8 tuần | Log sự cố theo tháng, chuẩn hóa định nghĩa “hết pin giữa đường” |
-| Downtime do sự cố pin | Chưa có baseline | Giảm 20% trong pilot | Thời gian xe không nhận cuốc do sự cố pin |
-| NPS/điểm hài lòng tài xế sau xử lý | Chưa có baseline | Tăng 10 điểm phần trăm so với baseline | Khảo sát sau ticket, cùng câu hỏi và mẫu đo |
+- **Rule:** Ưu tiên va chạm, khói/cháy, nhiệt độ pin bất thường và lỗi điện cao áp.
+- **LLM:** Trích xuất triệu chứng và sinh câu hỏi làm rõ.
+- **RAG:** Truy xuất SOP theo model xe/mã lỗi.
+- **Agent:** Chỉ có giá trị nếu cần gọi tuần tự telemetry, bản đồ và roster cứu hộ; agent chỉ xếp hạng đề xuất.
+- **HITL:** Dispatcher duyệt mọi dispatch; tình huống nguy hiểm chuyển ngay quy trình khẩn cấp.
+- **Quick Architecture:** **Agent có kiểm soát** cho orchestration đa công cụ, với Rule + LLM + RAG và approval bắt buộc.
 
-### AI/Product metrics
+### Success metrics
 
-| Metric | Baseline tạm thời | Target | Cách đo |
-|---|---:|---:|---|
-| Tuân thủ Rule 1, Rule 2 | Chưa đo | 100% trong test suite; không có lỗi nghiêm trọng trong pilot | Bộ test adversarial có expected outcome rõ ràng |
-| Prompt injection bị chặn | Chưa đo | >= 95% trên bộ test đã gắn nhãn | Số input injection bị từ chối/ tổng input injection |
-| Latency phản hồi bản nháp | Chưa đo | P95 < 5 giây, không tính thời gian API bản đồ | Log request/response timestamp |
-| Tỷ lệ bản nháp được dispatcher chấp nhận sau chỉnh sửa nhỏ | Chưa đo | >= 85% | Phân loại mức chỉnh sửa trên ticket đã duyệt |
+- Thời gian xác định phương án: **15 phút → dưới 5 phút** cho case thông thường.
+- Nhận diện case cần emergency escalation: **recall ≥ 95%**.
+- Giảm **20%** lượt điều nhầm đội/phương tiện và **15%** thời gian chờ hỗ trợ.
 
-## 9. Phạm vi và giả định
+---
 
-- Prototype chỉ tạo bản nháp hoặc structured command; không tự gửi tin và không tự xác nhận cứu hộ đã hoàn tất.
-- Rule pin dưới 5% và khoảng cách 5 km là ranh giới an toàn bắt buộc.
-- Dữ liệu khoảng cách, mức pin và tình trạng trạm trong prototype là input từ người dùng; production cần lấy từ hệ thống được xác thực.
-- Mọi con số chưa có nguồn dữ liệu nội bộ đều được đánh dấu là giả định để tránh trình bày như fact vận hành.
+## Quick Problem Card 3 — VinFast: AI trợ lý tìm trạm sạc phù hợp
+
+### Bài toán
+
+Giúp khách hàng tìm và so sánh trạm sạc phù hợp với xe, mức pin, tuyến đường và nhu cầu hiện tại bằng dữ liệu có timestamp.
+
+### Subsidiary và Actor
+
+- **Subsidiary:** VinFast
+- **Actor:** Chủ xe/tài xế VinFast và nhân viên CSKH.
+
+### Current workflow
+
+Mở bản đồ hoặc liên hệ CSKH<br>
+↓<br>
+Kiểm tra tương thích, giờ hoạt động và availability<br>
+↓<br>
+So sánh độ lệch tuyến, mức pin dự kiến và tiện ích<br>
+↓<br>
+Chọn trạm và đổi phương án nếu trạm đầy/ngừng hoạt động
+
+### Bottleneck
+
+- **Bước chậm nhất:** Tổng hợp nhiều điều kiện giữa các trạm, khoảng **5–12 phút**.
+- **Lỗi thường gặp:** Chọn trạm không tương thích, dùng trạng thái cũ hoặc thiếu biên an toàn về pin.
+- **Tổng thời gian ước lượng:** **8–15 phút/lượt tìm kiếm**.
+
+### AI opportunity và architecture
+
+- **Rule/API:** Lọc chuẩn đầu sạc, trạng thái, giờ mở cửa, phạm vi pin và ngưỡng an toàn.
+- **LLM:** Hiểu yêu cầu tự nhiên và giải thích trade-off.
+- **RAG:** Truy xuất chính sách/hướng dẫn; availability và ETA luôn lấy từ API thời gian thực.
+- **HITL:** Khách hàng chọn trạm và xác nhận điều hướng; hệ thống cảnh báo khi pin thấp hoặc dữ liệu cũ.
+- **Quick Architecture:** **LLM + RAG**, kết hợp Rule/API.
+
+### Success metrics
+
+- Thời gian tìm trạm: **8 phút → dưới 2 phút**.
+- Gợi ý vượt qua điều kiện tương thích và phạm vi pin: **≥ 95%**.
+- Giảm **20%** lượt đổi trạm do thông tin không phù hợp; mọi trạng thái hiển thị timestamp.
+
+## Quyết định chọn bài toán Deep-Dive
+
+Chọn **Card 1 — AI Incident Intelligence cho trạm sạc EV VinFast** vì workflow và ownership rõ, dữ liệu telemetry/log/ticket có thể audit, giá trị gắn trực tiếp với downtime/SLA, đồng thời có ranh giới hợp lý giữa Rule, LLM + RAG và quyết định của kỹ sư.
